@@ -15,6 +15,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   highlightUsageRatio: 0.8,
   highlightUsageStartCount: 5,
   historyLimit: 120,
+  archiveEnabled: false,
+  archiveFolderName: "archive",
+  archivePromptsEnabled: false,
 });
 
 export const PREVIEW_POSITIONS = Object.freeze([
@@ -80,6 +83,15 @@ function normalizeSettings(overrides = {}) {
     : DEFAULT_SETTINGS.position;
   if (typeof normalized.enabled !== "boolean") {
     normalized.enabled = DEFAULT_SETTINGS.enabled;
+  }
+  if (typeof normalized.archiveEnabled !== "boolean") {
+    normalized.archiveEnabled = DEFAULT_SETTINGS.archiveEnabled;
+  }
+  if (typeof normalized.archiveFolderName !== "string" || !normalized.archiveFolderName.trim()) {
+    normalized.archiveFolderName = DEFAULT_SETTINGS.archiveFolderName;
+  }
+  if (typeof normalized.archivePromptsEnabled !== "boolean") {
+    normalized.archivePromptsEnabled = DEFAULT_SETTINGS.archivePromptsEnabled;
   }
   normalized.historyLimit = clampHistoryLimit(normalized.historyLimit);
   return normalized;

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from .archiver import archive_generated_files, update_archive_settings
 from .normalizers import normalize_output_payload
 from .registry import consume_prompt_entries
 from .storage import get_prompt_history_storage
@@ -44,10 +45,10 @@ def _extract_generated_files(history_result: Any) -> List[Dict[str, Any]]:
     return collected
 
 
-def _extract_prompt_texts(prompt_payload: Any) -> List[str]:
+def _extract_prompt_texts(prompt_payload: Any) -> List[Tuple[str, str]]:
     if not isinstance(prompt_payload, dict):
         return []
-    prompts: List[str] = []
+    prompts: List[Tuple[str, str]] = []
     for node in prompt_payload.values():
         if not isinstance(node, dict):
             continue
@@ -56,8 +57,9 @@ def _extract_prompt_texts(prompt_payload: Any) -> List[str]:
         inputs = node.get("inputs", {})
         if isinstance(inputs, dict):
             prompt_value = inputs.get("prompt")
+            negative_value = inputs.get("negative_prompt", "")
             if isinstance(prompt_value, str) and prompt_value:
-                prompts.append(prompt_value)
+                prompts.append((prompt_value, negative_value if isinstance(negative_value, str) else ""))
     return prompts
 
 
@@ -73,12 +75,18 @@ def _resolve_entry_ids(
     if entry_ids:
         return entry_ids
 
-    prompt_texts = _extract_prompt_texts(prompt_payload)
-    if not prompt_texts:
+    prompt_pairs = _extract_prompt_texts(prompt_payload)
+    if not prompt_pairs:
         return []
 
-    resolved = storage.find_entry_ids_for_prompts(prompt_texts)
-    return list(resolved.values())
+    # Try to find entries using both prompt and negative_prompt
+    resolved_ids: List[str] = []
+    for prompt_text, negative_text in prompt_pairs:
+        entry_id = storage.find_entry_id_for_prompt_and_negative(prompt_text, negative_text)
+        if entry_id:
+            resolved_ids.append(entry_id)
+    
+    return resolved_ids
 
 
 def _notify_clients(
@@ -93,6 +101,32 @@ def _notify_clients(
         server.send_sync("PromptHistoryGallery.updated", payload)
     except Exception:  # pragma: no cover
         LOGGER.exception("Failed to notify clients about history update")
+
+
+def _get_prompts_for_entry(entry_id: str, prompt_payload: Any) -> Tuple[str, str]:
+    """Extract positive and negative prompts for a given entry."""
+    positive_prompt = ""
+    negative_prompt = ""
+    
+    if not isinstance(prompt_payload, dict):
+        return positive_prompt, negative_prompt
+    
+    for node in prompt_payload.values():
+        if not isinstance(node, dict):
+            continue
+        if node.get("class_type") != "PromptHistoryInput":
+            continue
+        inputs = node.get("inputs", {})
+        if isinstance(inputs, dict):
+            prompt_value = inputs.get("prompt", "")
+            negative_value = inputs.get("negative_prompt", "")
+            if isinstance(prompt_value, str):
+                positive_prompt = prompt_value
+            if isinstance(negative_value, str):
+                negative_prompt = negative_value
+            break
+    
+    return positive_prompt, negative_prompt
 
 
 def handle_prompt_completion(
@@ -114,7 +148,26 @@ def handle_prompt_completion(
 
     files = _extract_generated_files(history_result)
     if files:
-        storage.add_outputs_for_entries(entry_ids, files)
+        # Archive files if enabled (use first entry's prompts)
+        positive_prompt, negative_prompt = "", ""
+        if entry_ids:
+            positive_prompt, negative_prompt = _get_prompts_for_entry(entry_ids[0], prompt_payload)
+        
+        # Archive files for each entry
+        archived_files_list = []
+        for entry_id in entry_ids:
+            archived_files = archive_generated_files(
+                files, 
+                entry_id, 
+                positive_prompt, 
+                negative_prompt
+            )
+            archived_files_list.append((entry_id, archived_files))
+        
+        # Store archived file paths in database
+        for entry_id, archived_files in archived_files_list:
+            if archived_files:
+                storage.add_outputs_for_entries([entry_id], archived_files)
 
     storage.touch_entries(entry_ids)
     _notify_clients(server, entry_ids, files)
