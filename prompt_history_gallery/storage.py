@@ -84,26 +84,29 @@ class PromptHistoryStorage:
         cursor: sqlite3.Cursor,
         prompt: str,
         metadata: Dict[str, Any],
+        negative_prompt: str = "",
     ) -> PromptHistoryEntry:
         now_iso = datetime.now(timezone.utc).isoformat()
         entry = PromptHistoryEntry(
             id=str(uuid.uuid4()),
             created_at=now_iso,
             prompt=prompt,
+            negative_prompt=negative_prompt,
             metadata=metadata.copy(),
             last_used_at=now_iso,
             files=tuple(),
         )
         cursor.execute(
             """
-            INSERT INTO prompt_history (id, created_at, last_used_at, prompt, tags, metadata)
-            VALUES (:id, :created_at, :last_used_at, :prompt, :tags, :metadata)
+            INSERT INTO prompt_history (id, created_at, last_used_at, prompt, negative_prompt, tags, metadata)
+            VALUES (:id, :created_at, :last_used_at, :prompt, :negative_prompt, :tags, :metadata)
             """,
             {
                 "id": entry.id,
                 "created_at": entry.created_at,
                 "last_used_at": entry.last_used_at,
                 "prompt": entry.prompt,
+                "negative_prompt": entry.negative_prompt,
                 "tags": "[]",  # Legacy column
                 "metadata": serialize_metadata(entry.metadata),
             },
@@ -114,6 +117,7 @@ class PromptHistoryStorage:
         self,
         cursor: sqlite3.Cursor,
         prompt: str,
+        negative_prompt: str,
         metadata: Dict[str, Any],
     ) -> Optional[PromptHistoryEntry]:
         """
@@ -123,14 +127,15 @@ class PromptHistoryStorage:
         # First try exact match (fast path, though less likely now with ignored keys)
         payload = {
             "prompt": prompt,
+            "negative_prompt": negative_prompt,
             "metadata": serialize_metadata(metadata),
         }
         # Note: We ignore tags in search now
         row = cursor.execute(
             """
-            SELECT id, created_at, last_used_at, prompt, metadata
+            SELECT id, created_at, last_used_at, prompt, COALESCE(negative_prompt, '') as negative_prompt, metadata
             FROM prompt_history
-            WHERE prompt = :prompt AND metadata = :metadata
+            WHERE prompt = :prompt AND COALESCE(negative_prompt, '') = :negative_prompt AND metadata = :metadata
             ORDER BY last_used_at DESC
             LIMIT 1
             """,
@@ -142,7 +147,7 @@ class PromptHistoryStorage:
         # Fallback: find by prompt and manually check metadata
         fallback_rows = cursor.execute(
             """
-            SELECT id, created_at, last_used_at, prompt, metadata
+            SELECT id, created_at, last_used_at, prompt, COALESCE(negative_prompt, '') as negative_prompt, metadata
             FROM prompt_history
             WHERE prompt = ?
             ORDER BY last_used_at DESC, created_at DESC
@@ -153,7 +158,7 @@ class PromptHistoryStorage:
 
         for candidate_row in fallback_rows:
             candidate_entry = PromptHistoryEntry.from_row(candidate_row)
-            if candidate_entry.metadata == metadata:
+            if candidate_entry.metadata == metadata and candidate_entry.negative_prompt == negative_prompt:
                 return candidate_entry
 
         return None
@@ -162,6 +167,7 @@ class PromptHistoryStorage:
         self,
         prompt: str,
         *,
+        negative_prompt: str = "",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> PromptHistoryEntry:
         """Persist a new entry for the provided prompt text."""
@@ -171,6 +177,7 @@ class PromptHistoryStorage:
                 cursor,
                 prompt,
                 incoming_metadata,
+                negative_prompt,
             )
         return entry
 
@@ -178,6 +185,7 @@ class PromptHistoryStorage:
         self,
         prompt: str,
         *,
+        negative_prompt: str = "",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Tuple[PromptHistoryEntry, bool]:
         """
@@ -186,10 +194,10 @@ class PromptHistoryStorage:
         """
         incoming_metadata = normalize_metadata(metadata)
         with self._locked_cursor(commit=True) as cursor:
-            existing = self._find_entry_locked(cursor, prompt, incoming_metadata)
+            existing = self._find_entry_locked(cursor, prompt, negative_prompt, incoming_metadata)
             if existing is not None:
                 return existing, False
-            entry = self._create_entry_locked(cursor, prompt, incoming_metadata)
+            entry = self._create_entry_locked(cursor, prompt, incoming_metadata, negative_prompt)
             return entry, True
 
     def update_metadata(self, entry_id: str, metadata_update: Dict[str, Any]) -> None:
@@ -225,11 +233,11 @@ class PromptHistoryStorage:
         Return stored entries grouped by prompt text, ordered by recent use.
         """
         sql = (
-            "SELECT id, created_at, last_used_at, prompt, metadata "
+            "SELECT id, created_at, last_used_at, prompt, COALESCE(negative_prompt, '') as negative_prompt, metadata "
             "FROM ("
-            "SELECT id, created_at, last_used_at, prompt, metadata, "
+            "SELECT id, created_at, last_used_at, prompt, COALESCE(negative_prompt, '') as negative_prompt, metadata, "
             "ROW_NUMBER() OVER ("
-            "PARTITION BY prompt "
+            "PARTITION BY prompt, COALESCE(negative_prompt, '') "
             "ORDER BY last_used_at DESC, created_at DESC, id DESC"
             ") AS row_rank "
             "FROM prompt_history"
@@ -322,6 +330,44 @@ class PromptHistoryStorage:
                 "UPDATE prompt_history SET last_used_at = ? WHERE id = ?",
                 [(timestamp, entry_id) for entry_id in targets],
             )
+
+    def find_entry_id_for_prompt_and_negative(self, prompt: str, negative_prompt: str) -> Optional[str]:
+        """
+        Find a single entry ID matching both the prompt and negative_prompt.
+        Returns the most recently used matching entry, or None if not found.
+        """
+        if not prompt:
+            return None
+        
+        with self._locked_cursor() as cursor:
+            row = cursor.execute(
+                """
+                SELECT id FROM prompt_history 
+                WHERE prompt = ? AND COALESCE(negative_prompt, '') = ?
+                ORDER BY last_used_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (prompt, negative_prompt),
+            ).fetchone()
+            
+            if row:
+                return row["id"]
+            
+            # Fallback: try to find by prompt only if negative_prompt is empty
+            if not negative_prompt:
+                row = cursor.execute(
+                    """
+                    SELECT id FROM prompt_history 
+                    WHERE prompt = ?
+                    ORDER BY last_used_at DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (prompt,),
+                ).fetchone()
+                if row:
+                    return row["id"]
+        
+        return None
 
     def find_entry_ids_for_prompts(self, prompts: Sequence[str]) -> Dict[str, str]:
         candidates = [str(p) for p in prompts if isinstance(p, str) and p]
@@ -419,11 +465,18 @@ class PromptHistoryStorage:
 
     def _configure_database(self) -> None:
         """
-        Initialize SQLite with the required schema.
+        Initialize SQLite with the required schema and handle migrations.
+        Ensures backward compatibility by adding missing columns if they don't exist.
         """
         with self._locked_cursor(commit=True) as cursor:
             cursor.execute("PRAGMA journal_mode=WAL;")
             cursor.execute("PRAGMA synchronous=NORMAL;")
+            
+            # Check if table exists before creating
+            table_exists = cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='prompt_history'"
+            ).fetchone() is not None
+            
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS prompt_history (
@@ -432,13 +485,18 @@ class PromptHistoryStorage:
                     last_used_at TEXT NOT NULL,
                     prompt TEXT NOT NULL,
                     tags TEXT NOT NULL,
-                    metadata TEXT NOT NULL
+                    metadata TEXT NOT NULL,
+                    negative_prompt TEXT DEFAULT ''
                 )
                 """
             )
+            
+            # Always check and migrate existing columns, regardless of whether table was just created
             existing_columns = {
                 row["name"] for row in cursor.execute("PRAGMA table_info(prompt_history)")
             }
+            
+            # Migrate last_used_at if missing
             if "last_used_at" not in existing_columns:
                 cursor.execute("ALTER TABLE prompt_history ADD COLUMN last_used_at TEXT")
                 cursor.execute(
@@ -447,6 +505,17 @@ class PromptHistoryStorage:
                     SET last_used_at = COALESCE(last_used_at, created_at)
                     """
                 )
+            
+            # Migrate negative_prompt if missing
+            if "negative_prompt" not in existing_columns:
+                cursor.execute("ALTER TABLE prompt_history ADD COLUMN negative_prompt TEXT DEFAULT ''")
+                cursor.execute(
+                    """
+                    UPDATE prompt_history
+                    SET negative_prompt = COALESCE(negative_prompt, '')
+                    """
+                )
+            
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS prompt_history_output (

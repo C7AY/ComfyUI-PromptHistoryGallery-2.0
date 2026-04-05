@@ -51,6 +51,8 @@ const TEXT = {
   deleteConfirm: "Delete this prompt history entry?",
   deleteSuccess: "History entry deleted.",
   deleteError: "Failed to delete entry.",
+  saveSuccess: "File saved successfully.",
+  saveError: "Failed to save file.",
   settingsTitle: "Settings",
   settingsHint: "Configure extension behavior.",
   settingsReset: "Reset to defaults",
@@ -60,6 +62,7 @@ const TEXT = {
   sectionGeneral: "General",
   sectionUsage: "List Appearance",
   sectionPreview: "Popup Preview",
+  sectionArchive: "Archive Settings",
   historyLimitLabel: "History Limit",
   historyLimitHint: "Number of prompts to keep in history.",
   searchPlaceholder: "Search prompts…",
@@ -74,6 +77,11 @@ const TEXT = {
   previewDuration: "Popup Duration",
   previewSizeLandscape: "Landscape Size (% width)",
   previewSizePortrait: "Portrait Size (% height)",
+  archiveToggle: "Enable Image Archiving",
+  archiveFolderLabel: "Archive Folder Name",
+  archiveFolderHint: "Folder name for archived images (relative to ComfyUI output directory)",
+  archivePromptsToggle: "Save Prompts as Text Files",
+  archivePromptsHint: "Save positive and negative prompts to .txt files alongside archived images",
 };
 
 const USAGE_RATIO_MIN = 0.05;
@@ -132,8 +140,23 @@ class HistoryDialog {
     this.messageTimeout = null;
     this._buildLayout();
     this._updateTargetLabel();
-    this._syncSettingsUI();
     this._switchTab("history"); // Default tab
+    
+    // Initial sync: fetch archive settings from server first, then apply to UI
+    this._initArchiveSettings();
+  }
+  
+  async _initArchiveSettings() {
+    // First, sync current UI/localStorage settings to server (silent, no UI updates)
+    // This ensures server gets the user's saved preferences on startup
+    await this._syncArchiveSettingsToServerSilent();
+    
+    // Then fetch settings from server to confirm they were applied
+    // This also handles the case where server might have different settings
+    await this._syncArchiveSettingsFromServer();
+    
+    // Finally, update UI with the confirmed settings
+    this._syncSettingsUI();
   }
 
   openWithNode(node) {
@@ -239,6 +262,159 @@ class HistoryDialog {
     this.settingsStore?.update?.(patch);
     this.settingsState = this.settingsStore?.getState?.() ?? this.settingsState;
     this._syncSettingsUI();
+    
+    // Sync archive settings to server when they change
+    if (
+      patch.archiveEnabled !== undefined ||
+      patch.archiveFolderName !== undefined ||
+      patch.archivePromptsEnabled !== undefined
+    ) {
+      this._syncArchiveSettingsToServer();
+    }
+  }
+  
+  async _syncArchiveSettingsToServer() {
+    try {
+      const payload = {
+        enabled: this.settingsState?.archiveEnabled ?? false,
+        folder_name: this.settingsState?.archiveFolderName ?? "archive",
+        prompts_enabled: this.settingsState?.archivePromptsEnabled ?? false,
+      };
+      
+      const response = await this.api.fetchApi("/prompt-history-gallery/archive-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      
+      if (!response.ok) {
+        console.error("[PHG] Failed to sync archive settings to server");
+      } else {
+        console.log("[PHG] Archive settings synced to server:", payload);
+      }
+    } catch (error) {
+      console.error("[PHG] Error syncing archive settings:", error);
+    }
+  }
+  
+  /**
+   * Sync archive settings to server without triggering UI updates.
+   * Used during initialization to avoid infinite loops.
+   */
+  async _syncArchiveSettingsToServerSilent() {
+    try {
+      const payload = {
+        enabled: this.settingsState?.archiveEnabled ?? false,
+        folder_name: this.settingsState?.archiveFolderName ?? "archive",
+        prompts_enabled: this.settingsState?.archivePromptsEnabled ?? false,
+      };
+      
+      const response = await this.api.fetchApi("/prompt-history-gallery/archive-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      
+      if (!response.ok) {
+        console.error("[PHG] Failed to sync archive settings to server");
+      } else {
+        console.log("[PHG] Archive settings synced to server (silent):", payload);
+      }
+    } catch (error) {
+      console.error("[PHG] Error syncing archive settings:", error);
+    }
+  }
+  
+  async _syncArchiveSettingsFromServer() {
+    try {
+      const response = await this.api.fetchApi("/prompt-history-gallery/archive-settings");
+      
+      if (!response.ok) {
+        console.error("[PHG] Failed to fetch archive settings from server");
+        return;
+      }
+      
+      const data = await response.json();
+      if (data.success && data.settings) {
+        const serverSettings = data.settings;
+        
+        // Update local settings state with server values
+        const patch = {};
+        if (typeof serverSettings.enabled === "boolean") {
+          patch.archiveEnabled = serverSettings.enabled;
+        }
+        if (typeof serverSettings.folder_name === "string" && serverSettings.folder_name.trim()) {
+          patch.archiveFolderName = serverSettings.folder_name.trim();
+        }
+        if (typeof serverSettings.prompts_enabled === "boolean") {
+          patch.archivePromptsEnabled = serverSettings.prompts_enabled;
+        }
+        
+        // Only apply patch if there are actual changes to avoid unnecessary updates
+        if (Object.keys(patch).length > 0) {
+          // Directly update the settings store without triggering another sync
+          // This prevents infinite loops during initialization
+          this.settingsStore?.update?.(patch);
+          this.settingsState = this.settingsStore?.getState?.() ?? this.settingsState;
+          console.log("[PHG] Archive settings loaded from server:", serverSettings);
+        }
+      }
+    } catch (error) {
+      console.error("[PHG] Error fetching archive settings from server:", error);
+    }
+  }
+  
+  async _createArchiveFolder(folderName) {
+    const messageEl = this.archiveFolderMessage;
+    if (!messageEl) return;
+    
+    // Clear previous message
+    messageEl.classList.remove("phg-field-message--success", "phg-field-message--error");
+    messageEl.classList.add("phg-field-message--hidden");
+    messageEl.textContent = "";
+    
+    const safeFolderName = (folderName || "archive").trim();
+    if (!safeFolderName) {
+      messageEl.textContent = "Please enter a valid folder name";
+      messageEl.classList.remove("phg-field-message--hidden");
+      messageEl.classList.add("phg-field-message--error");
+      return;
+    }
+    
+    try {
+      const response = await this.api.fetchApi("/prompt-history-gallery/create-archive-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_name: safeFolderName }),
+      });
+      
+      // Read response text to check for "already exists" message
+      const responseText = await response.text();
+      
+      // Handle response based on HTTP status and content
+      // Status 200 = folder created successfully
+      // Status 409 = folder already exists
+      if (response.status === 409) {
+        messageEl.textContent = `✓ Folder '${safeFolderName}' already exists`;
+        messageEl.classList.remove("phg-field-message--hidden");
+        messageEl.classList.add("phg-field-message--success");
+      } else if (response.ok) {
+        messageEl.textContent = `✓ Folder '${safeFolderName}' created successfully`;
+        messageEl.classList.remove("phg-field-message--hidden");
+        messageEl.classList.add("phg-field-message--success");
+        // Also sync settings to ensure server knows about this folder
+        await this._syncArchiveSettingsToServer();
+      } else {
+        messageEl.textContent = `✗ Failed to create folder: ${response.status} ${response.statusText}`;
+        messageEl.classList.remove("phg-field-message--hidden");
+        messageEl.classList.add("phg-field-message--error");
+      }
+    } catch (error) {
+      console.error("[PHG] Error creating archive folder:", error);
+      messageEl.textContent = `✗ Error: ${error.message || "Failed to create folder"}`;
+      messageEl.classList.remove("phg-field-message--hidden");
+      messageEl.classList.add("phg-field-message--error");
+    }
   }
 
   _buildSettingsView() {
@@ -356,6 +532,37 @@ class HistoryDialog {
     previewContainer.append(previewHeader, previewContent);
     const previewGroup = previewContainer;
 
+    // -- Archive Settings --
+    const archiveGroup = this._buildSettingsGroup(TEXT.sectionArchive, [
+      this._buildToggleField(
+        TEXT.archiveToggle,
+        () => this.settingsState?.archiveEnabled !== false,
+        (checked) => this._applySettingsPatch({ archiveEnabled: checked }),
+        "archiveToggleInput"
+      ),
+      this._buildTextField(
+        TEXT.archiveFolderLabel,
+        TEXT.archiveFolderHint,
+        () => this.settingsState?.archiveFolderName ?? DEFAULT_SETTINGS.archiveFolderName,
+        (val) => this._applySettingsPatch({ archiveFolderName: val }),
+        "archiveFolderInput",
+        {
+          label: "Create Folder",
+          title: "Create archive folder in output directory",
+          messageRef: "archiveFolderMessage",
+          onClick: (folderName) => this._createArchiveFolder(folderName),
+        },
+        /* disabledWhen */ () => !(this.settingsState?.archiveEnabled !== false)
+      ),
+      this._buildToggleField(
+        TEXT.archivePromptsToggle,
+        () => this.settingsState?.archivePromptsEnabled !== false,
+        (checked) => this._applySettingsPatch({ archivePromptsEnabled: checked }),
+        "archivePromptsToggleInput",
+        /* disabledWhen */ () => !(this.settingsState?.archiveEnabled !== false)
+      ),
+    ]);
+
     const footer = createEl("div", "phg-settings-footer");
     const resetBtn = this._createButton(
       TEXT.settingsReset,
@@ -365,7 +572,7 @@ class HistoryDialog {
     );
     footer.append(resetBtn);
 
-    container.append(listGroup, previewGroup, footer);
+    container.append(listGroup, previewGroup, archiveGroup, footer);
     return container;
   }
 
@@ -378,7 +585,7 @@ class HistoryDialog {
     return group;
   }
 
-  _buildToggleField(label, getValue, onChange, refName) {
+  _buildToggleField(label, getValue, onChange, refName, disabledWhen) {
     const item = createEl("div", "phg-settings-item");
     const info = createEl("div", "phg-settings-item__info");
     info.append(createEl("div", "phg-settings-item__label", label));
@@ -388,7 +595,28 @@ class HistoryDialog {
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = getValue();
-    input.addEventListener("change", () => onChange(input.checked));
+    
+    const isDisabled = disabledWhen ? disabledWhen() : false;
+    input.disabled = isDisabled;
+    if (isDisabled) {
+      toggle.classList.add("phg-toggle--disabled");
+    }
+    
+    // Store reference to update disabled state dynamically
+    const toggleLabelEl = toggle;
+    input.addEventListener("change", () => {
+      onChange(input.checked);
+      // Re-evaluate disabled state on change
+      if (disabledWhen) {
+        const shouldBeDisabled = disabledWhen();
+        input.disabled = shouldBeDisabled;
+        if (shouldBeDisabled) {
+          toggleLabelEl.classList.add("phg-toggle--disabled");
+        } else {
+          toggleLabelEl.classList.remove("phg-toggle--disabled");
+        }
+      }
+    });
 
     const slider = createEl("span", "phg-toggle-slider");
     toggle.append(input, slider);
@@ -397,6 +625,67 @@ class HistoryDialog {
     item.append(info, control);
 
     if (refName) this[refName] = input;
+    return item;
+  }
+
+  _buildTextField(label, hint, getValue, onChange, refName, addButton, disabledWhen) {
+    const item = createEl("div", "phg-settings-item phg-settings-item--col");
+
+    const headerObj = createEl("div", "phg-settings-item__header");
+    const labelEl = createEl("div", "phg-settings-item__label", label);
+    headerObj.append(labelEl);
+
+    const control = createEl("div", "phg-range-wrapper");
+    const inputWrapper = createEl("div", "phg-input-wrapper");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "phg-text-input";
+    input.value = getValue();
+    input.placeholder = hint;
+    
+    const isDisabled = disabledWhen ? disabledWhen() : false;
+    input.disabled = isDisabled;
+
+    // Only update on change (blur/enter), not on every input character
+    // This prevents creating folders on every keystroke when a button is present
+    if (addButton) {
+      input.addEventListener("change", () => {
+        if (!isDisabled) onChange(input.value.trim());
+      });
+    } else {
+      input.addEventListener("input", () => {
+        if (!isDisabled) onChange(input.value);
+      });
+      input.addEventListener("change", () => {
+        if (!isDisabled) onChange(input.value.trim());
+      });
+    }
+
+    inputWrapper.append(input);
+    
+    // Add optional button (e.g., "Create Folder")
+    if (addButton) {
+      const btn = document.createElement("button");
+      btn.className = "phg-create-folder-btn";
+      btn.textContent = addButton.label;
+      btn.title = addButton.title || "";
+      btn.disabled = isDisabled;
+      btn.addEventListener("click", () => {
+        if (!isDisabled) addButton.onClick(input.value.trim());
+      });
+      inputWrapper.append(btn);
+    }
+
+    control.append(inputWrapper);
+    item.append(headerObj, control);
+
+    // Message area for feedback
+    const messageEl = createEl("div", "phg-field-message phg-field-message--hidden");
+    item.append(messageEl);
+
+    if (refName) this[refName] = input;
+    if (addButton && addButton.messageRef) this[addButton.messageRef] = messageEl;
+    
     return item;
   }
 
@@ -568,6 +857,39 @@ class HistoryDialog {
       this.portraitInput.value = String(val);
       if (this.portraitInputDisplay) this.portraitInputDisplay.textContent = `${val}%`;
     }
+
+    // Toggle: Archive
+    if (this.archiveToggleInput) {
+      this.archiveToggleInput.checked = state.archiveEnabled !== false;
+    }
+
+    // Text: Archive Folder Name
+    if (this.archiveFolderInput) {
+      this.archiveFolderInput.value = state.archiveFolderName ?? DEFAULT_SETTINGS.archiveFolderName;
+      // Also disable folder input and button when archive is disabled
+      const isArchiveDisabled = !(state.archiveEnabled !== false);
+      this.archiveFolderInput.disabled = isArchiveDisabled;
+      // Also disable the create folder button
+      const inputWrapper = this.archiveFolderInput.closest(".phg-input-wrapper");
+      if (inputWrapper) {
+        const btn = inputWrapper.querySelector(".phg-create-folder-btn");
+        if (btn) {
+          btn.disabled = isArchiveDisabled;
+        }
+      }
+    }
+    
+    // Toggle: Archive Prompts
+    if (this.archivePromptsToggleInput) {
+      this.archivePromptsToggleInput.checked = state.archivePromptsEnabled !== false;
+      const isArchiveDisabled = !(state.archiveEnabled !== false);
+      this.archivePromptsToggleInput.disabled = isArchiveDisabled;
+      if (isArchiveDisabled) {
+        this.archivePromptsToggleInput.closest(".phg-toggle")?.classList.add("phg-toggle--disabled");
+      } else {
+        this.archivePromptsToggleInput.closest(".phg-toggle")?.classList.remove("phg-toggle--disabled");
+      }
+    }
   }
 
   _buildLayout() {
@@ -662,6 +984,19 @@ class HistoryDialog {
     return button;
   }
 
+  _createIconButton(icon, title, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "phg-icon-btn";
+    button.textContent = icon;
+    button.title = title;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onClick?.();
+    });
+    return button;
+  }
+
   _createChip(label, variant = "", onClick = null) {
     const chip = document.createElement("span");
     chip.className = "phg-chip" + (variant ? ` phg-chip--${variant}` : "");
@@ -737,12 +1072,14 @@ class HistoryDialog {
 
     const useLabel = this.state.target ? "Use" : "Copy";
     actions.append(
+      this._createButton("Save Image", "Save file with dialog", () => this._handleSaveImage(entry, sources), "success"),
+      this._createButton("Save Prompt", "Save prompt to text file", () => this._savePrompt(entry), "success"),
       this._createButton(
         useLabel,
         this.state.target ? "Send prompt to the selected node" : "Copy prompt to clipboard",
         () => this._handleUse(entry)
       ),
-      this._createButton("Copy", "Copy prompt", () => this._copyPrompt(entry), "ghost"),
+      this._createButton("Copy", "Copy full prompt structure", () => this._copyAllPrompts(entry)),
       this._createButton("Delete", "Delete entry", () => this._deleteEntry(entry), "danger")
     );
 
@@ -994,7 +1331,9 @@ class HistoryDialog {
     const isOrMode = this.state.searchMode === "or";
     return entries.filter((entry) => {
       const promptText = String(entry.prompt ?? "").toLowerCase();
-      const matchesTerm = (term) => promptText.includes(term);
+      const negativePromptText = String(entry.negative_prompt ?? "").toLowerCase();
+      const combinedText = promptText + " " + negativePromptText;
+      const matchesTerm = (term) => combinedText.includes(term);
       return isOrMode ? terms.some(matchesTerm) : terms.every(matchesTerm);
     });
   }
@@ -1046,12 +1385,42 @@ class HistoryDialog {
     header.append(stamp, badges, this._buildActions(entry, sources));
 
     const body = createEl("div", "phg-entry-card__body");
-    body.append(this._buildPreview(preview, entry, sources), this._buildPrompt(entry.prompt));
+    body.append(
+      this._buildPreview(preview, entry, sources),
+      this._buildPromptContainer(entry)
+    );
 
     const metaRow = createEl("div", "phg-entry-card__footer");
 
     article.append(header, body, metaRow);
     return article;
+  }
+
+  _buildPromptContainer(entry) {
+    const container = createEl("div", "phg-prompt-container");
+    
+    // Positive prompt section (with green border like negative has red)
+    const posContainer = createEl("div", "phg-prompt-section phg-prompt-section--positive");
+    const posHeader = createEl("div", "phg-prompt-header");
+    const posLabel = createEl("div", "phg-prompt-label", "POSITIVE PROMPT:");
+    const posCopyBtn = this._createIconButton("📋", "Copy positive prompt", () => this._copyIndividualPrompt(entry.prompt, "Positive"));
+    posHeader.append(posLabel, posCopyBtn);
+    const posPre = createEl("pre", "phg-prompt-text");
+    posPre.textContent = entry.prompt ?? "";
+    posContainer.append(posHeader, posPre);
+    
+    // Negative prompt section (always show, even if empty)
+    const negContainer = createEl("div", "phg-prompt-section phg-prompt-section--negative");
+    const negHeader = createEl("div", "phg-prompt-header");
+    const negLabel = createEl("div", "phg-prompt-label", "NEGATIVE PROMPT:");
+    const negCopyBtn = this._createIconButton("📋", "Copy negative prompt", () => this._copyIndividualPrompt(entry.negative_prompt, "Negative"));
+    negHeader.append(negLabel, negCopyBtn);
+    const negPre = createEl("pre", "phg-prompt-text");
+    negPre.textContent = entry.negative_prompt ?? "";
+    negContainer.append(negHeader, negPre);
+    container.append(posContainer, negContainer);
+
+    return container;
   }
 
   async _handleUse(entry) {
@@ -1124,7 +1493,32 @@ class HistoryDialog {
       return;
     }
 
+    // Apply positive prompt
     const updated = applyPromptToWidget(node, widget, entry.prompt ?? "");
+    
+    // Apply negative prompt if it exists and we can find another widget
+    if (entry.negative_prompt && entry.negative_prompt.trim() !== "") {
+      // Try to find another free string widget for negative prompt
+      let negWidget = findFirstFreeStringWidget(node);
+      // If the first free widget is the same as the one we used for positive, try to find another
+      if (negWidget === widget) {
+        // Look for the next available widget
+        const allWidgets = node.widgets?.filter((w) => 
+          w.type === "string" || w.type === "customtext"
+        ) || [];
+        const widgetIndex = allWidgets.indexOf(widget);
+        if (widgetIndex >= 0 && widgetIndex < allWidgets.length - 1) {
+          negWidget = allWidgets[widgetIndex + 1];
+        } else {
+          negWidget = null;
+        }
+      }
+      
+      if (negWidget && negWidget !== widget) {
+        applyPromptToWidget(node, negWidget, entry.negative_prompt);
+      }
+    }
+    
     // Update target to point to where we actually sent it, so the UI reflects it?
     // The requirement doesn't explicitly say we must update the "Sending to: ..." label permanently,
     // but it's good UX to show where it went.
@@ -1141,11 +1535,134 @@ class HistoryDialog {
 
   async _copyPrompt(entry) {
     try {
-      await navigator.clipboard.writeText(entry.prompt ?? "");
+      // Copy only positive prompt without header (original behavior for individual copy)
+      const textToCopy = entry.prompt ?? "";
+      await navigator.clipboard.writeText(textToCopy);
       this._setMessage(TEXT.copied, "info");
     } catch (error) {
       logError(LOGGER, "copyPrompt error", error);
       this._setMessage("Failed to copy prompt.", "error");
+    }
+  }
+
+  async _copyIndividualPrompt(text, type) {
+    try {
+      const textToCopy = text ?? "";
+      await navigator.clipboard.writeText(textToCopy);
+      this._setMessage(`${type} prompt copied.`, "info");
+    } catch (error) {
+      logError(LOGGER, "copyIndividualPrompt error", error);
+      this._setMessage(`Failed to copy ${type.toLowerCase()} prompt.`, "error");
+    }
+  }
+
+  async _copyAllPrompts(entry) {
+    try {
+      // Copy both positive and negative prompts with headers (same format as Save Prompt)
+      const positivePrompt = entry.prompt ?? "";
+      const negativePrompt = entry.negative_prompt ?? "";
+      
+      const textToCopy = `POSITIVE PROMPT:\n${positivePrompt}\n\nNEGATIVE PROMPT:\n${negativePrompt}`;
+      await navigator.clipboard.writeText(textToCopy);
+      this._setMessage("Full prompt structure copied.", "info");
+    } catch (error) {
+      logError(LOGGER, "copyAllPrompts error", error);
+      this._setMessage("Failed to copy prompts.", "error");
+    }
+  }
+
+  async _handleSaveImage(entry, sources) {
+    if (!sources || sources.length === 0) {
+      this._setMessage(TEXT.noImages, "warn");
+      return;
+    }
+    
+    // If multiple images, open gallery for selection
+    if (sources.length > 1) {
+      this._openGallery(entry, sources.length - 1);
+      return;
+    }
+    
+    // Single image - save directly
+    await this._saveFileFromSource(sources[sources.length - 1], entry);
+  }
+
+  async _saveFileFromSource(source, entry) {
+    try {
+      const url = source.url;
+      
+      // Fetch the image blob
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error("Failed to fetch image");
+      }
+      const blob = await response.blob();
+      
+      // Create download link and trigger save dialog
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      // Generate filename from entry id or timestamp
+      const filename = `prompt_${entry.id || Date.now()}.png`;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+      
+      this._setMessage(TEXT.saveSuccess, "success");
+    } catch (error) {
+      logError(LOGGER, "saveFile error", error);
+      this._setMessage(TEXT.saveError, "error");
+    }
+  }
+
+  // Method called from viewer gallery to save selected image
+  async saveSelectedImageFromGallery(imageElement) {
+    try {
+      const src = imageElement.src || imageElement.getAttribute("data-original");
+      if (!src) {
+        throw new Error("No image source found");
+      }
+      
+      // Fetch the image blob
+      const response = await fetch(src);
+      if (!response.ok) {
+        throw new Error("Failed to fetch image");
+      }
+      const blob = await response.blob();
+      
+      // Create download link and trigger save dialog
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      const entryId = imageElement.dataset.entryId || Date.now();
+      a.download = `prompt_${entryId}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+      
+      this._setMessage(TEXT.saveSuccess, "success");
+    } catch (error) {
+      logError(LOGGER, "saveGalleryImage error", error);
+      this._setMessage(TEXT.saveError, "error");
+    }
+  }
+
+  async _saveFile(entry) {
+    const sources = buildImageSources(entry, this.api);
+    if (!sources.length) {
+      this._setMessage(TEXT.noImages, "warn");
+      return;
+    }
+    try {
+      // Use the latest image
+      const latestSource = sources[sources.length - 1];
+      await this._saveFileFromSource(latestSource, entry);
+    } catch (error) {
+      logError(LOGGER, "saveFile error", error);
+      this._setMessage(TEXT.saveError, "error");
     }
   }
 
@@ -1171,10 +1688,75 @@ class HistoryDialog {
       return;
     }
     try {
-      await this.viewer.open(entry.id ?? null, sources, Math.max(0, startIndex), entry);
+      await this.viewer.open(entry.id ?? null, sources, Math.max(0, startIndex), entry, this);
     } catch (error) {
       logError(LOGGER, "openGallery error", error);
       this._setMessage("Failed to open gallery.", "error");
+    }
+  }
+
+  async _saveFile(entry) {
+    const sources = buildImageSources(entry, this.api);
+    if (!sources.length) {
+      this._setMessage(TEXT.noImages, "warn");
+      return;
+    }
+    try {
+      // Use the latest image
+      const latestSource = sources[sources.length - 1];
+      const url = latestSource.url;
+      
+      // Fetch the image blob
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error("Failed to fetch image");
+      }
+      const blob = await response.blob();
+      
+      // Create download link and trigger save dialog
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      // Generate filename from entry id or timestamp
+      const filename = `prompt_${entry.id || Date.now()}.png`;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+      
+      this._setMessage(TEXT.saveSuccess, "success");
+    } catch (error) {
+      logError(LOGGER, "saveFile error", error);
+      this._setMessage(TEXT.saveError, "error");
+    }
+  }
+
+  async _savePrompt(entry) {
+    try {
+      // Format the prompt text as specified
+      const positivePrompt = entry.prompt ?? "";
+      const negativePrompt = entry.negative_prompt ?? "";
+      
+      const promptText = `POSITIVE PROMPT:\n${positivePrompt}\n\nNEGATIVE PROMPT:\n${negativePrompt}`;
+      
+      // Create blob and download
+      const blob = new Blob([promptText], { type: "text/plain" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      // Generate filename from entry id or timestamp
+      const filename = `prompt_${entry.id || Date.now()}.txt`;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+      
+      this._setMessage(TEXT.saveSuccess, "success");
+    } catch (error) {
+      logError(LOGGER, "savePrompt error", error);
+      this._setMessage(TEXT.saveError, "error");
     }
   }
 }
@@ -1203,7 +1785,7 @@ function attachUpdateListeners(api, eventBus) {
       }
       const safeIndex = Math.max(0, Math.min(startIndex, sources.length - 1));
       try {
-        const result = dialog.viewer.open(entry?.id ?? null, sources, safeIndex, entry);
+        const result = dialog.viewer.open(entry?.id ?? null, sources, safeIndex, entry, dialog);
         return result ?? true;
       } catch (error) {
         logError(LOGGER, "preview openGallery error", error);

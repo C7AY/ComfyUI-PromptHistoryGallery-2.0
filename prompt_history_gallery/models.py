@@ -1,49 +1,47 @@
 """Data structures shared across the prompt history extension."""
 
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Any, Dict, Sequence, Tuple
-
 from .serialization import deserialize_metadata
 
 
 @dataclass(frozen=True)
 class PromptHistoryEntry:
-    """Serializable prompt history item."""
-
     id: str
     created_at: str
     prompt: str
-    metadata: Dict[str, Any]
-    last_used_at: str
+    negative_prompt: str = ""  # ✨ NEW
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    last_used_at: str = ""
     files: Tuple[Dict[str, Any], ...] = field(default_factory=tuple)
 
     @classmethod
-    def from_row(
-        cls,
-        row: Any,
-        files: Sequence[Any] = (),
-    ) -> "PromptHistoryEntry":
+    def from_row(cls, row: Any, files: Sequence[Any] = ()) -> "PromptHistoryEntry":
         metadata = deserialize_metadata(row["metadata"])
-        normalized_files: Tuple[Dict[str, Any], ...] = tuple(
+        normalized_files = tuple(
             item.to_dict() if hasattr(item, "to_dict") else dict(item) for item in files
         )
+        # sqlite3.Row doesn't have .get(), use index-based access with fallback for optional columns
+        negative_prompt = ""
+        if "negative_prompt" in row.keys():
+            negative_prompt = row["negative_prompt"] or ""
         return cls(
             id=row["id"],
             created_at=row["created_at"],
             prompt=row["prompt"],
+            negative_prompt=negative_prompt,
             metadata=metadata,
             last_used_at=row["last_used_at"],
             files=normalized_files,
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the dataclass into a JSON serialisable dictionary."""
         return {
             "id": self.id,
             "created_at": self.created_at,
             "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,  # ✨ NEW
             "metadata": self.metadata.copy(),
             "last_used_at": self.last_used_at,
             "files": [item.copy() for item in self.files],

@@ -10,6 +10,7 @@ from .prompt_history_gallery import (
     NODE_DISPLAY_NAME_MAPPINGS,
     get_prompt_history_storage,
 )
+from .prompt_history_gallery.server_routes import setup_server_routes
 
 WEB_DIRECTORY = "./web"
 
@@ -36,6 +37,10 @@ def _get_limit(request, *, default=50, minimum=20, maximum=1000):
     except (TypeError, ValueError):
         return max(minimum, min(default, maximum))
     return max(minimum, min(limit, maximum))
+
+
+# Setup archive settings routes
+setup_server_routes(PromptServer.instance)
 
 
 @PromptServer.instance.routes.get("/prompt-history")

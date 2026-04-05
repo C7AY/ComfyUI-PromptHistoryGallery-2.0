@@ -269,6 +269,11 @@
   transform: translateX(20px);
 }
 
+.phg-toggle--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .phg-settings-footer {
   margin-top: 2rem;
   padding-top: 1rem;
@@ -710,6 +715,12 @@
   justify-content: flex-end;
 }
 
+/* Adjust button size when there are more buttons */
+.phg-entry-card__actions .phg-button {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 .phg-entry-card__body {
   display: grid;
   grid-template-columns: 180px 1fr;
@@ -766,6 +777,97 @@
   white-space: pre-wrap;
 }
 
+/* Prompt Container with separated positive/negative sections */
+.phg-prompt-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.phg-prompt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.phg-prompt-section--positive {
+  border-color: rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.03);
+}
+
+.phg-prompt-section--negative {
+  border-color: rgba(248, 113, 113, 0.3);
+  background: rgba(248, 113, 113, 0.03);
+}
+
+.phg-prompt-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+
+.phg-prompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.phg-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  font-size: 1rem;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, transform 0.12s ease;
+  border-radius: 4px;
+}
+
+.phg-icon-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.phg-prompt-section--positive .phg-prompt-label {
+  color: #86efac;
+}
+
+.phg-prompt-section--negative .phg-prompt-label {
+  color: #fca5a5;
+}
+
+.phg-prompt-text {
+  margin: 0;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  font-family: var(
+    --p-font-family,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace
+  );
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .phg-entry-card__footer {
   display: flex;
   flex-wrap: wrap;
@@ -812,6 +914,11 @@
 .phg-button--danger {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.24), rgba(248, 113, 113, 0.38));
   border-color: rgba(248, 113, 113, 0.35);
+}
+
+.phg-button--success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.24), rgba(34, 197, 94, 0.38));
+  border-color: rgba(34, 197, 94, 0.35);
 }
 
 .phg-chip {
@@ -883,4 +990,200 @@
   .phg-entry-card__actions {
     justify-content: flex-start;
   }
+}
+
+/* Archive folder input with button */
+.phg-input-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.phg-text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.phg-create-folder-btn {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--comfy-menu-bg, #353535);
+  background: var(--comfy-accent-color, #4CAF50);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.phg-create-folder-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.phg-create-folder-btn:active {
+  transform: translateY(0);
+}
+
+/* Field message styles */
+.phg-field-message {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.phg-field-message--hidden {
+  display: none;
+}
+
+.phg-field-message--success {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.phg-field-message--error {
+  background: rgba(244, 67, 54, 0.15);
+  color: #e57373;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+/* Viewer.js toolbar save button styling */
+.phg-viewer-save-btn-li {
+  float: left;
+  margin-left: 1px;
+  display: block !important;
+  height: auto !important;
+  width: auto !important;
+  background-color: transparent !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+}
+
+/* Force toolbar to display the save button */
+.viewer-container .viewer-toolbar > ul {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+}
+
+.phg-viewer-save-btn {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    background 0.15s ease;
+  white-space: nowrap;
+  height: auto !important;
+  width: auto !important;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.24), rgba(34, 197, 94, 0.38)) !important;
+  border-color: rgba(34, 197, 94, 0.35) !important;
+  color: var(--p-text-color, #e5e7eb) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1.2 !important;
+  overflow: visible !important;
+}
+
+.phg-viewer-save-btn:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(34, 197, 94, 0.5)) !important;
+}
+
+/* Override viewer toolbar li default styles for save button */
+.viewer-toolbar > ul > .phg-viewer-save-btn-li {
+  background-color: transparent !important;
+  border-radius: 0 !important;
+  height: auto !important;
+  width: auto !important;
+  overflow: visible !important;
+}
+
+.viewer-toolbar > ul > .phg-viewer-save-btn-li:before {
+  content: none !important;
+  margin: 0 !important;
+}
+
+/* Save Selected Image button wrapper between title and toolbar */
+.viewer-SaveSelectedButton {
+  padding: 10px !important;
+  text-align: center !important;
+  display: block !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  clear: both !important;
+}
+
+.viewer-SaveSelectedButton .phg-button.phg-button--success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.24), rgba(34, 197, 94, 0.38)) !important;
+  border-color: rgba(34, 197, 94, 0.35) !important;
+  color: var(--p-text-color, #e5e7eb) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  padding: 0.5rem 1.25rem !important;
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  border-radius: 9999px !important;
+  cursor: pointer !important;
+  transition: transform 0.12s ease, background 0.15s ease !important;
+  white-space: nowrap !important;
+  height: auto !important;
+  width: auto !important;
+  min-width: 180px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1.2 !important;
+  margin: 0 auto !important;
+  position: relative !important;
+  z-index: 10 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.viewer-SaveSelectedButton .phg-button.phg-button--success:hover {
+  transform: translateY(-1px) !important;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(34, 197, 94, 0.5)) !important;
+}
+
+/* Ensure the button is not hidden by viewer styles */
+.viewer-footer > .viewer-SaveSelectedButton {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Additional styles for the caption text */
+.phg-caption-text {
+  font-size: 0.85rem;
+  color: var(--p-text-color, #e5e7eb);
+  text-align: center;
+  padding: 4px 10px;
+  opacity: 0.9;
+}
+
+.phg-meta-info {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+/* Ensure viewer-title displays our custom HTML properly */
+.viewer-title {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  min-height: auto !important;
+  padding: 0 !important;
+}
+
+.viewer-title > * {
+  display: block !important;
+  visibility: visible !important;
 }

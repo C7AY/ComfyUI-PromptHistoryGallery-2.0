@@ -68,12 +68,20 @@ class PromptHistoryInput:
                         "multiline": True,
                     },
                 ),
+                "negative_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "forceInput": False,
+                        "multiline": True,
+                    },
+                ),
             },
             "optional": {},
         }
 
-    RETURN_TYPES = ("CONDITIONING",)
-    RETURN_NAMES = ("CONDITIONING",)
+    RETURN_TYPES = ("CONDITIONING", "CONDITIONING")
+    RETURN_NAMES = ("POSITIVE_CONDITIONING", "NEGATIVE_CONDITIONING")
     FUNCTION = "record_prompt"
     CATEGORY = "Prompt History"
 
@@ -81,8 +89,9 @@ class PromptHistoryInput:
         self,
         clip,
         prompt: str,
+        negative_prompt: str = "",
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Any]:
+    ) -> Tuple[Any, Any]:
         metadata_dict = normalize_metadata(metadata)
         context = get_executing_context()
         prompt_id = context.prompt_id if context else None
@@ -91,21 +100,25 @@ class PromptHistoryInput:
             metadata_dict[_NODE_METADATA_KEY] = node_identifier
         entry, created = self._storage.ensure_entry(
             prompt=prompt,
+            negative_prompt=negative_prompt,
             metadata=metadata_dict,
         )
         if not created:
             self._storage.touch_entries([entry.id])
         if prompt_id:
             register_prompt_entry(prompt_id, entry.id)
-        tokens = clip.tokenize(prompt)
-        conditioning = clip.encode_from_tokens_scheduled(tokens)
-        return (conditioning,)
+        pos_tokens = clip.tokenize(prompt)
+        pos_conditioning = clip.encode_from_tokens_scheduled(pos_tokens)
+        neg_tokens = clip.tokenize(negative_prompt)
+        neg_conditioning = clip.encode_from_tokens_scheduled(neg_tokens)
+        return (pos_conditioning, neg_conditioning)
 
     @classmethod
     def IS_CHANGED(
         cls,
         clip,
         prompt: str,
+        negative_prompt: str = "",
         metadata: Optional[Dict[str, Any]] = None,
     ):
         """
