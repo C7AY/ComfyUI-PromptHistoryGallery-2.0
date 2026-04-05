@@ -90,20 +90,6 @@ The node executes on every graph run so repeated prompts are captured. Each exec
 
 **Backward Compatibility**: Due to significant schema changes, backward compatibility with previous database versions is not guaranteed. If you're upgrading from an older version, consider exporting your data first or starting with a fresh database.
 
-## Development
-
-### Formatting
-
-- One-shot fixer: `scripts/format.sh` (needs `pipx` and Node) runs Ruff via `pipx run --spec ruff==0.14.10` plus Prettier `-w` to apply fixes.
-- Install dev tools: `pip install -e .[dev]` (provides Ruff).
-- Python: run `ruff format --check .` and `ruff check --select I .` (add `--fix` locally if you want auto-fixes).
-- Web/JS/CSS: run `npx prettier@3.7.4 --check "web/**/*.{js,jsx,ts,tsx,css,scss,html,json}"` (honors `.prettierignore`; `web/vendor/` is excluded).
-- CI: `.github/workflows/ci.yml` runs `ruff format --check .`, `ruff check --select I .`, and `npx prettier@3.7.4 --check "web/**/*.{js,jsx,ts,tsx,css,scss,html,json}"` on pushes/PRs to `main`.
-
-### Release
-
-- Release bundles are published by GitHub Actions; no manual `node.zip` rebuild is required.
-
 ## Credits
 
 This is a fork of [ComfyUI-PromptHistoryGallery](https://github.com/x0x0b/ComfyUI-PromptHistoryGallery) with significant enhancements including dual prompt support, image archiving, and enhanced save capabilities.
