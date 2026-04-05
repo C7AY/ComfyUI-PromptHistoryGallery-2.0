@@ -64,7 +64,7 @@ The node executes on every graph run so repeated prompts are captured. Each exec
   - When enabled, images are saved to both their normal output location AND the archive folder
   - Files are linked to the database from the archive location
   - Moving or deleting original files won't break history entries
-- **Archive Folder Name**: Specify the folder name for archived images (default: `archiv9jk`)
+- **Archive Folder Name**: Specify the folder name for archived images (default: `archive`)
   - Click `Create Folder` to initialize the archive directory
 - **Save Prompts as Text Files**: Toggle to automatically save prompt .txt files alongside generated images
   - Files are named to match their corresponding images
