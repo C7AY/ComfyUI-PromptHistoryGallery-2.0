@@ -88,7 +88,7 @@ The node executes on every graph run so repeated prompts are captured. Each exec
 - Auto-saved prompt file tracking
 - Enhanced metadata
 
-**Backward Compatibility**: Due to significant schema changes, backward compatibility with previous database versions is not guaranteed. If you're upgrading from an older version, consider exporting your data first or starting with a fresh database.
+**Backward Compatibility**: Due to significant schema changes, backward compatibility with previous versions of the database is not guaranteed. If you are upgrading from an older version, consider exporting the data first or deleting the database; a new one will be created when you launch ComfyUI.
 
 ## Credits
 
