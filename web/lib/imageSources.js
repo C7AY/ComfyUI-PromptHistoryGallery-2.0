@@ -55,6 +55,7 @@ function normalizeDescriptor(candidate, { allowMissingExtension = false } = {}) 
     filename: String(filename),
   };
 
+  // Пытаемся найти entryId внутри самого объекта файла (редко, но бывает)
   const entryId = candidate.entry_id ?? candidate.entryId ?? candidate.source_entry_id;
   if (entryId) {
     record.entryId = String(entryId);
@@ -92,7 +93,7 @@ function normalizeDescriptor(candidate, { allowMissingExtension = false } = {}) 
   return record;
 }
 
-function appendFromCollection(result, seen, collection, { allowMissingExtension = false } = {}) {
+function appendFromCollection(result, seen, collection, { allowMissingExtension = false, parentEntryId = null } = {}) {
   if (!Array.isArray(collection)) return;
   for (const item of collection) {
     const descriptor = normalizeDescriptor(item, {
@@ -120,7 +121,8 @@ function appendFromCollection(result, seen, collection, { allowMissingExtension 
       params,
       title: descriptor.title ? String(descriptor.title) : descriptor.filename,
       thumbHint: descriptor.thumbnail ?? null,
-      entryId: descriptor.entryId ?? null,
+      // ВАЖНО: Если у дескриптора нет своего entryId, берем родительский (entry.id)
+      entryId: descriptor.entryId ?? parentEntryId ?? null,
     });
   }
 }
@@ -147,6 +149,10 @@ function collectMetadataCollections(entry) {
 export function buildImageSources(entry, api) {
   const result = [];
   const seen = new Set();
+  
+  // Получаем ID родительской записи (entry.id)
+  const parentEntryId = entry?.id ?? null;
+
   const collections = [
     { items: Array.isArray(entry?.files) ? entry.files : null, allowMissingExtension: false },
     ...collectMetadataCollections(entry).map((items) => ({
@@ -157,7 +163,8 @@ export function buildImageSources(entry, api) {
 
   for (const { items, allowMissingExtension } of collections) {
     if (!items) continue;
-    appendFromCollection(result, seen, items, { allowMissingExtension });
+    // Передаем parentEntryId внутрь функции сбора
+    appendFromCollection(result, seen, items, { allowMissingExtension, parentEntryId });
   }
 
   return result.map((item) => {
@@ -172,11 +179,28 @@ export function buildImageSources(entry, api) {
         thumb = hint;
       }
     }
+    
+    // Находим исходный файл из entry.files чтобы получить его metadata
+    const sourceFile = Array.isArray(entry?.files) 
+      ? entry.files.find(f => f?.filename === item.params?.filename && f?.subfolder === item.params?.subfolder)
+      : null;
+    
+    // Приоритет: metadata из файла, иначе fallback на entry.metadata
+    const fileMetadata = sourceFile?.metadata || {};
+    const hasFileMetadata = fileMetadata && typeof fileMetadata === "object" && Object.keys(fileMetadata).length > 0;
+    
     return {
       url,
       thumb,
       title: item.title,
-      entryId: item.entryId ?? null,
+      // Гарантируем, что entryId передается дальше
+      entryId: item.entryId ?? parentEntryId ?? null,
+      // Добавляем filename, subfolder, type для работы кнопок удаления
+      filename: item.params?.filename || "",
+      subfolder: item.params?.subfolder || "",
+      type: item.params?.type || "output",
+      // Добавляем metadata: приоритет у metadata файла, иначе entry.metadata
+      metadata: hasFileMetadata ? fileMetadata : (entry?.metadata || {}),
     };
   });
 }

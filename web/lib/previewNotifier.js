@@ -584,8 +584,7 @@ export function createPreviewNotifier({
       return [];
     }
     try {
-      const limit = Math.max(10, Math.min(200, unique.length * 4));
-      const items = await resolvedHistoryApi.list(limit);
+      const items = await resolvedHistoryApi.list();
       const map = new Map(items.map((entry) => [entry.id, entry]));
       return unique.map((entryId) => map.get(entryId)).filter((entry) => !!entry);
     } catch (error) {
@@ -635,7 +634,7 @@ export function createPreviewNotifier({
 
     if (!entry.id) {
       try {
-        const recent = await resolvedHistoryApi.list(50);
+        const recent = await resolvedHistoryApi.list();
         const targetNames = new Set(
           filesPayload
             .map(normalizeGeneratedFile)

@@ -1,11 +1,9 @@
-const DEFAULT_LIMIT = 50;
-
-function resolveFetcher(api) {
+const resolveFetcher = (api) => {
   if (api && typeof api.fetchApi === "function") {
     return (path, options = {}) => api.fetchApi(path, options);
   }
   return (path, options = {}) => fetch(path, options);
-}
+};
 
 export function createHistoryApi(api) {
   const fetcher = resolveFetcher(api);
@@ -36,9 +34,8 @@ export function createHistoryApi(api) {
   };
 
   return {
-    async list(limit = DEFAULT_LIMIT) {
-      const safeLimit = Math.max(20, Math.min(Number(limit) || DEFAULT_LIMIT, 1000));
-      const payload = await request(`/prompt-history?limit=${safeLimit}`, {
+    async list() {
+      const payload = await request(`/prompt-history`, {
         method: "GET",
         parseJson: true,
       });
@@ -50,8 +47,43 @@ export function createHistoryApi(api) {
       if (!entryId) {
         throw new Error("Entry id is required.");
       }
-      await request(`/prompt-history/${entryId}`, {
+      await request(`/phg/delete_history_entry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entry_id: entryId }),
+      });
+    },
+
+    async deleteOutputFile(entryId, filename, subfolder = "", fileType = "") {
+      if (!entryId || !filename) {
+        throw new Error("Entry id and filename are required.");
+      }
+      await request(`/prompt-history/output/${entryId}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, subfolder, type: fileType }),
+      });
+    },
+
+    async deleteEverywhere(entryId, filename, subfolder = "", fileType = "") {
+      if (!entryId || !filename) {
+        throw new Error("Entry id and filename are required.");
+      }
+      await request(`/prompt-history/delete-everywhere/${entryId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, subfolder, type: fileType }),
+      });
+    },
+
+    async deleteOthersExcept(entryId, keepFilename, keepSubfolder = "", keepType = "") {
+      if (!entryId || !keepFilename) {
+        throw new Error("Entry id and filename are required.");
+      }
+      await request(`/prompt-history/delete-others/${entryId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: keepFilename, subfolder: keepSubfolder, type: keepType }),
       });
     },
 

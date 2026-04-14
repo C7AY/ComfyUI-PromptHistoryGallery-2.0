@@ -9,15 +9,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   displayDuration: 6000,
   position: "bottom-left",
   enabled: true,
-  landscapeViewportPercent: 20,
-  portraitViewportPercent: 40,
-  highlightUsage: true,
-  highlightUsageRatio: 0.8,
-  highlightUsageStartCount: 5,
-  historyLimit: 120,
-  archiveEnabled: false,
+  archiveEnabled: true,
   archiveFolderName: "archive",
-  archivePromptsEnabled: false,
+  archivePromptsEnabled: true,
 });
 
 export const PREVIEW_POSITIONS = Object.freeze([
@@ -41,10 +35,6 @@ function clampPercent(value, fallback) {
   return clamp(numeric, MIN_VIEWPORT_PERCENT, MAX_VIEWPORT_PERCENT);
 }
 
-function clampHistoryLimit(value) {
-  return clampInt(value, 20, 1000, DEFAULT_SETTINGS.historyLimit);
-}
-
 function normalizeSettings(overrides = {}) {
   const normalized = { ...DEFAULT_SETTINGS, ...(overrides || {}) };
   const size = Number(normalized.imageSize);
@@ -54,29 +44,6 @@ function normalizeSettings(overrides = {}) {
     Number.isFinite(duration) ? duration : DEFAULT_SETTINGS.displayDuration,
     1500,
     60000
-  );
-  const usageRatio = Number(normalized.highlightUsageRatio);
-  normalized.highlightUsageRatio = clamp(
-    Number.isFinite(usageRatio) ? usageRatio : DEFAULT_SETTINGS.highlightUsageRatio,
-    0.05,
-    1
-  );
-  if (typeof normalized.highlightUsage !== "boolean") {
-    normalized.highlightUsage = DEFAULT_SETTINGS.highlightUsage;
-  }
-  normalized.highlightUsageStartCount = clampInt(
-    normalized.highlightUsageStartCount,
-    1,
-    100,
-    DEFAULT_SETTINGS.highlightUsageStartCount
-  );
-  normalized.landscapeViewportPercent = clampPercent(
-    Number(normalized.landscapeViewportPercent),
-    DEFAULT_SETTINGS.landscapeViewportPercent
-  );
-  normalized.portraitViewportPercent = clampPercent(
-    Number(normalized.portraitViewportPercent),
-    DEFAULT_SETTINGS.portraitViewportPercent
   );
   normalized.position = POSITION_SET.has(normalized.position)
     ? normalized.position
@@ -93,7 +60,6 @@ function normalizeSettings(overrides = {}) {
   if (typeof normalized.archivePromptsEnabled !== "boolean") {
     normalized.archivePromptsEnabled = DEFAULT_SETTINGS.archivePromptsEnabled;
   }
-  normalized.historyLimit = clampHistoryLimit(normalized.historyLimit);
   return normalized;
 }
 

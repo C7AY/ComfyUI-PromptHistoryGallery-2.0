@@ -4,16 +4,26 @@ Prompt input node that records text prompts into history storage.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Dict, Optional, Tuple
-
-from comfy_execution.utils import get_executing_context
 
 from ..normalizers import normalize_metadata
 from ..registry import register_prompt_entry
 from ..storage import get_prompt_history_storage
 
+LOGGER = logging.getLogger(__name__)
 _NODE_METADATA_KEY = "_prompt_history_node"
+
+
+def _get_executing_context():
+    """Lazy import of executing context to avoid import errors during node initialization."""
+    try:
+        from comfy_execution.utils import get_executing_context
+        return get_executing_context()
+    except ImportError:
+        LOGGER.debug("comfy_execution.utils not available, using fallback")
+        return None
 
 
 def _resolve_node_identifier(context: Any) -> Optional[str]:
@@ -93,7 +103,7 @@ class PromptHistoryInput:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Any, Any]:
         metadata_dict = normalize_metadata(metadata)
-        context = get_executing_context()
+        context = _get_executing_context()
         prompt_id = context.prompt_id if context else None
         node_identifier = _resolve_node_identifier(context)
         if node_identifier and _NODE_METADATA_KEY not in metadata_dict:

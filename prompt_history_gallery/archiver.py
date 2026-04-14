@@ -28,10 +28,6 @@ def update_archive_settings(
     _archive_enabled = enabled
     _archive_folder_name = folder_name.strip() or "archive"
     _archive_prompts_enabled = prompts_enabled
-    LOGGER.info(
-        f"[PHG Archive] Settings updated: enabled={_archive_enabled}, "
-        f"folder={_archive_folder_name}, prompts={_archive_prompts_enabled}"
-    )
     
     # Pre-create archive directory if enabled to ensure it exists before first use
     if _archive_enabled:
@@ -49,6 +45,13 @@ def get_archive_settings() -> Dict[str, Any]:
 
 def _get_comfyui_output_dir() -> Optional[Path]:
     """Get the ComfyUI output directory."""
+    # First check environment variable for testing
+    env_output_dir = os.environ.get("COMFYUI_OUTPUT_DIR")
+    if env_output_dir:
+        env_path = Path(env_output_dir).expanduser()
+        if env_path.exists():
+            return env_path
+    
     try:
         from folder_paths import get_output_directory
         return Path(get_output_directory())
@@ -64,24 +67,41 @@ def _get_comfyui_output_dir() -> Optional[Path]:
     return None
 
 
+def _get_temp_directory() -> Optional[Path]:
+    """Get the ComfyUI temporary directory for preview images."""
+    try:
+        from folder_paths import get_temp_directory
+        temp_dir = get_temp_directory()
+        if temp_dir:
+            return Path(temp_dir)
+    except Exception:
+        pass
+    
+    # Fallback: try to find temp directory relative to output
+    output_dir = _get_comfyui_output_dir()
+    if output_dir:
+        temp_dir = output_dir.parent / "temp"
+        if temp_dir.exists():
+            return temp_dir
+    
+    return None
+
+
 def _get_archive_directory() -> Optional[Path]:
     """Get the archive directory path."""
     if not _archive_enabled:
-        LOGGER.debug("[PHG Archive] Archiving is disabled, skipping directory creation")
         return None
     
     output_dir = _get_comfyui_output_dir()
     if not output_dir:
-        LOGGER.warning("[PHG Archive] Could not determine ComfyUI output directory")
         return None
     
     archive_dir = output_dir / _archive_folder_name
+    
     try:
         archive_dir.mkdir(parents=True, exist_ok=True)
-        LOGGER.info(f"[PHG Archive] Archive directory ready: {archive_dir}")
         return archive_dir
-    except Exception as e:
-        LOGGER.error(f"[PHG Archive] Failed to create archive directory: {e}")
+    except Exception:
         return None
 
 
@@ -132,11 +152,9 @@ def _copy_image_to_archive(
         dest_path = archive_dir / unique_filename
         
         shutil.copy2(source_path, dest_path)
-        LOGGER.info(f"[PHG Archive] Copied image: {original_filename} -> {unique_filename}")
         return unique_filename
     
-    except Exception as e:
-        LOGGER.error(f"[PHG Archive] Failed to copy image {original_filename}: {e}")
+    except Exception:
         return None
 
 
@@ -166,11 +184,9 @@ def _save_prompt_to_archive(
         with open(dest_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        LOGGER.info(f"[PHG Archive] Saved prompt: {unique_filename}")
         return unique_filename
     
-    except Exception as e:
-        LOGGER.error(f"[PHG Archive] Failed to save prompt file: {e}")
+    except Exception:
         return None
 
 
@@ -194,15 +210,12 @@ def archive_generated_files(
         or original list if archiving is disabled/failed.
     """
     if not _archive_enabled:
-        LOGGER.debug("[PHG Archive] Archiving disabled, skipping")
         return files
     
     archive_dir = _get_archive_directory()
     if not archive_dir:
-        LOGGER.warning("[PHG Archive] Archive directory not available, skipping archiving")
         return files
     
-    LOGGER.info(f"[PHG Archive] Starting to archive {len(files)} files for entry {entry_id}")
     archived_files = []
     
     for file_info in files:
@@ -214,21 +227,22 @@ def archive_generated_files(
             archived_files.append(file_info)
             continue
         
-        # Build source path
+        # Build source path based on file type
+        source_path = None
+        
         if file_type == "output":
             output_dir = _get_comfyui_output_dir()
             if output_dir:
-                source_path = output_dir / subfolder / filename if subfolder else output_dir / filename
-            else:
-                archived_files.append(file_info)
-                continue
-        else:
-            # For temp files or unknown types, skip archiving
-            archived_files.append(file_info)
-            continue
-        
-        if not source_path.exists():
-            LOGGER.warning(f"[PHG Archive] Source file not found: {source_path}")
+                normalized_subfolder = subfolder.replace('\\', '/') if subfolder else ""
+                source_path = output_dir / normalized_subfolder / filename if normalized_subfolder else output_dir / filename
+                
+        elif file_type == "temp":
+            temp_dir = _get_temp_directory()
+            if temp_dir:
+                normalized_subfolder = subfolder.replace('\\', '/') if subfolder else ""
+                source_path = temp_dir / normalized_subfolder / filename if normalized_subfolder else temp_dir / filename
+            
+        if source_path is None or not source_path.exists():
             archived_files.append(file_info)
             continue
         
